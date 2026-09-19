@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Bin and Shelf">
+  <title>Bin &amp; Shelf</title>
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#1B6B57"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 148 202 L 364 202 L 364 358 L 148 358 Z"/>
+    <path d="M 148 202 L 172 154 L 340 154 L 364 202"/>
+    <path d="M 220 262 L 292 262"/>
+  </g>
+</svg>
