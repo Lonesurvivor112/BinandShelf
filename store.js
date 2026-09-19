@@ -197,7 +197,10 @@ export function setMeta(key, value) {
 export function exportAll() {
   return Promise.all(COLLECTIONS.map((c) => all(c))).then((sets) => {
     const out = { app: 'bin-and-shelf', version: 1, exportedAt: new Date().toISOString() };
-    COLLECTIONS.forEach((c, i) => { out[c] = sets[i]; });
+    /* always the same order, so two backups of the same data compare equal */
+    COLLECTIONS.forEach((c, i) => {
+      out[c] = sets[i].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    });
     return out;
   });
 }

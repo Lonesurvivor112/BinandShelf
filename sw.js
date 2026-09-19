@@ -2,6 +2,8 @@
    The whole app is a handful of static files, so they all get pre-cached.
    Fonts are cached the first time they load, then served from the cache. */
 
+/* Bump VERSION whenever the app files change: it re-primes the cache so an
+   installed phone picks the new code up on its next open. */
 var VERSION = 'v1';
 var SHELL = 'shell-' + VERSION;
 var FONTS = 'fonts-' + VERSION;

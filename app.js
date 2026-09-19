@@ -62,10 +62,19 @@ function binsIn(placeId){
   return S.bins.filter(function(b){ return b.placeId === placeId; })
     .sort(function(a,b){ return (a.code||'').localeCompare(b.code||'') || (a.name||'').localeCompare(b.name||''); });
 }
-function itemCount(b){ return (b.items || []).length; }
+/* Items live in two kinds of owner: a container, or a place itself for the
+   things that are simply standing there - a ladder, a bike, a spare mattress. */
+function itemCount(owner){ return ((owner && owner.items) || []).length; }
 function totalItems(){
-  return S.bins.reduce(function(n,b){ return n + itemCount(b); }, 0);
+  var n = S.bins.reduce(function(n,b){ return n + itemCount(b); }, 0);
+  return S.places.reduce(function(n,p){ return n + itemCount(p); }, n);
 }
+/* everything kept in a place: inside its containers, plus the loose things */
+function placeItemTotal(p){
+  return binsIn(p.id).reduce(function(n,b){ return n + itemCount(b); }, 0) + itemCount(p);
+}
+function ownerOf(kind, id){ return kind === 'place' ? placeById(id) : binById(id); }
+function ownerCollection(kind){ return kind === 'place' ? 'places' : 'containers'; }
 function sortedPlaces(){
   return S.places.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
 }
@@ -111,6 +120,12 @@ function searchAll(qRaw){
     (b.items || []).forEach(function(it){
       var ih = [it.name, it.note].join(' ').toLowerCase();
       if (ih.indexOf(q) !== -1) itemHits.push({item:it, bin:b});
+    });
+  });
+  S.places.forEach(function(p){
+    (p.items || []).forEach(function(it){
+      var ih = [it.name, it.note].join(' ').toLowerCase();
+      if (ih.indexOf(q) !== -1) itemHits.push({item:it, place:p});
     });
   });
   itemHits.sort(function(a,b){ return a.item.name.localeCompare(b.item.name); });
@@ -210,7 +225,7 @@ function viewHome(){
   h += '<div class="rows">';
   places.forEach(function(p){
     var bs = binsIn(p.id);
-    var items = bs.reduce(function(n,b){ return n + itemCount(b); }, 0);
+    var items = placeItemTotal(p);
     h += '<button class="row" data-act="open-place" data-id="' + esc(p.id) + '">' +
       '<span class="rmain"><span class="rtitle">' + esc(p.name) + '</span>' +
       '<span class="rsub">' + plural(bs.length, 'container') + ' &middot; ' + plural(items, 'item') + '</span></span>' +
@@ -255,25 +270,62 @@ function binCard(b, q){
     '</button>';
 }
 
+/* the shared list of items, used by both a container and a place */
+function itemList(kind, ownerId, items){
+  var h = '<div class="items">';
+  items.forEach(function(it){
+    var attrs = ' data-owner="' + kind + '" data-id="' + esc(ownerId) + '" data-item="' + esc(it.id) + '"';
+    h += '<div class="item">' +
+      '<span class="qty mono">' + esc(it.qty || 1) + '</span>' +
+      '<span class="iname"><button data-act="edit-item"' + attrs + ' style="text-align:left">' +
+        esc(it.name) + '</button>' +
+        (it.note ? '<span class="inote">' + esc(it.note) + '</span>' : '') +
+      '</span>' +
+      '<button class="xbtn" data-act="del-item"' + attrs + ' aria-label="Remove ' + esc(it.name) + '">' + I.x + '</button>' +
+      '</div>';
+  });
+  return h + '</div>';
+}
+function quickAddForm(placeholder, label){
+  return '<form class="quickadd" id="quickadd">' +
+    '<input id="quick-name" type="text" placeholder="' + esc(placeholder) + '" autocomplete="off" aria-label="' + esc(label) + '">' +
+    '<button class="btn primary" type="submit">Add</button></form>';
+}
+
 function viewPlace(p){
   var bs = binsIn(p.id);
+  var loose = (p.items || []);
   var h = crumb([{label:'Places', act:'home'}, {label:p.name}]);
   h += '<div class="sectionhead"><h2 style="font-size:24px">' + esc(p.name) + '</h2>' +
     '<button class="linkbtn" data-act="edit-place" data-id="' + esc(p.id) + '">Edit</button></div>';
   h += '<p style="color:var(--muted); font-size:13px; margin:0 0 14px">' +
     plural(bs.length, 'container') + ' &middot; ' +
-    plural(bs.reduce(function(n,b){ return n + itemCount(b); }, 0), 'item') + '</p>';
+    plural(placeItemTotal(p), 'item') +
+    (loose.length ? ' &middot; ' + loose.length + ' not in a container' : '') + '</p>';
 
-  if (!bs.length){
+  if (!bs.length && !loose.length){
     h += '<div class="empty"><h3>No containers here yet</h3>' +
       '<p>Add the first bin, box or shelf you keep in ' + esc(p.name) + '.</p>' +
       '<button class="btn primary" data-act="new-bin" data-id="' + esc(p.id) + '">' + I.plus + ' Add a container</button></div>';
+  } else if (!bs.length){
+    h += '<div style="margin-top:4px"><button class="btn wide" data-act="new-bin" data-id="' + esc(p.id) + '">' + I.plus + ' Add a container here</button></div>';
   } else {
     h += '<div class="cards">';
     bs.forEach(function(b){ h += binCard(b); });
     h += '</div>';
     h += '<div style="margin-top:12px"><button class="btn wide" data-act="new-bin" data-id="' + esc(p.id) + '">' + I.plus + ' Add a container here</button></div>';
   }
+
+  /* things that are just here, in no bin or box at all */
+  h += '<div class="sectionhead"><span class="eyebrow">Not in a container</span></div>';
+  if (loose.length) h += itemList('place', p.id, loose);
+  h += quickAddForm('Add something loose here…', 'Add an item kept loose in ' + p.name);
+  h += '<p style="font-size:12px;color:var(--faint);margin-top:8px">' +
+    (loose.length
+      ? 'Tap an item name to set a quantity or a note.'
+      : 'For the things that sit in the open &mdash; a ladder, a bike, a spare mattress.') +
+    '</p>';
+
   h += '<div style="margin-top:22px"><button class="btn danger sm" data-act="del-place" data-id="' + esc(p.id) + '">' + I.trash + ' Delete this place</button></div>';
   return h;
 }
@@ -316,26 +368,13 @@ function viewBin(b){
   h += '<div class="sectionhead"><span class="eyebrow">What\'s inside</span></div>';
 
   if (items.length){
-    h += '<div class="items">';
-    items.forEach(function(it){
-      h += '<div class="item">' +
-        '<span class="qty mono">' + esc(it.qty || 1) + '</span>' +
-        '<span class="iname"><button data-act="edit-item" data-id="' + esc(b.id) + '" data-item="' + esc(it.id) + '" style="text-align:left">' +
-          esc(it.name) + '</button>' +
-          (it.note ? '<span class="inote">' + esc(it.note) + '</span>' : '') +
-        '</span>' +
-        '<button class="xbtn" data-act="del-item" data-id="' + esc(b.id) + '" data-item="' + esc(it.id) + '" aria-label="Remove ' + esc(it.name) + '">' + I.x + '</button>' +
-        '</div>';
-    });
-    h += '</div>';
+    h += itemList('bin', b.id, items);
   } else {
     h += '<div class="empty" style="padding:20px 16px"><h3>Nothing listed yet</h3>' +
       '<p>Type what\'s in this container below &mdash; one line each.</p></div>';
   }
 
-  h += '<form class="quickadd" id="quickadd">' +
-    '<input id="quick-name" type="text" placeholder="Add an item&hellip;" autocomplete="off" aria-label="Add an item to this container">' +
-    '<button class="btn primary" type="submit">Add</button></form>';
+  h += quickAddForm('Add an item…', 'Add an item to this container');
   h += '<p style="font-size:12px;color:var(--faint);margin-top:8px">Tap an item name to set a quantity or a note.</p>';
   return h;
 }
@@ -356,11 +395,20 @@ function viewSearch(){
     h += '<div class="sectionhead"><span class="eyebrow">' + plural(r.items.length,'item') + '</span></div>';
     h += '<div class="rows">';
     r.items.forEach(function(hit){
-      var p = placeById(hit.bin.placeId);
-      var where = (hit.bin.code ? hit.bin.code + ' &middot; ' : '') + esc(hit.bin.name) +
-        (p ? ' <span class="dot">&middot;</span> ' + esc(p.name) : '') +
-        (hit.bin.spot ? ' <span class="dot">&middot;</span> ' + esc(hit.bin.spot) : '');
-      h += '<button class="row" data-act="open-bin" data-id="' + esc(hit.bin.id) + '">' +
+      var where, act, target;
+      if (hit.place){
+        where = esc(hit.place.name) + ' <span class="dot">&middot;</span> not in a container';
+        act = 'open-place';
+        target = hit.place.id;
+      } else {
+        var p = placeById(hit.bin.placeId);
+        where = (hit.bin.code ? hit.bin.code + ' &middot; ' : '') + esc(hit.bin.name) +
+          (p ? ' <span class="dot">&middot;</span> ' + esc(p.name) : '') +
+          (hit.bin.spot ? ' <span class="dot">&middot;</span> ' + esc(hit.bin.spot) : '');
+        act = 'open-bin';
+        target = hit.bin.id;
+      }
+      h += '<button class="row" data-act="' + act + '" data-id="' + esc(target) + '">' +
         '<span class="qty mono">' + esc(hit.item.qty || 1) + '</span>' +
         '<span class="rmain"><span class="rtitle">' + highlight(hit.item.name, q) + '</span>' +
         '<span class="rsub">' + where + '</span></span>' +
@@ -481,11 +529,14 @@ function binSheet(existing, presetPlace){
   );
 }
 
-function itemSheet(binId, item){
-  var b = binById(binId);
-  if (!b) return;
+function itemSheet(kind, ownerId, item){
+  var owner = ownerOf(kind, ownerId);
+  if (!owner) return;
   sheet(
     '<h3>' + (item ? 'Edit item' : 'Add item') + '</h3>' +
+    (kind === 'place'
+      ? '<p class="hint" style="margin:-8px 0 12px">Kept loose in ' + esc(owner.name) + ', not in a container.</p>'
+      : '') +
     '<div class="duo">' +
       '<div class="field" style="flex:3"><label for="f-iname">Item</label>' +
       '<input id="f-iname" type="text" value="' + esc(item ? item.name : '') + '" placeholder="Tree topper"></div>' +
@@ -501,15 +552,15 @@ function itemSheet(binId, item){
       var close = scrim.querySelector('[data-close]');
       if (close) close.onclick = closeSheet;
       var del = scrim.querySelector('#f-del');
-      if (del) del.onclick = function(){ removeItem(binId, item.id); };
+      if (del) del.onclick = function(){ removeItem(kind, ownerId, item.id); };
       scrim.querySelector('#f-save').onclick = function(){
         var name = scrim.querySelector('#f-iname').value.trim();
         if (!name) { toast('Name the item first.'); return; }
         var qty = parseInt(scrim.querySelector('#f-qty').value, 10);
         if (!qty || qty < 1) qty = 1;
         var note = scrim.querySelector('#f-inote').value.trim();
-        if (item) updateItem(binId, item.id, {name:name, qty:qty, note:note});
-        else addItem(binId, name, qty, note);
+        if (item) updateItem(kind, ownerId, item.id, {name:name, qty:qty, note:note});
+        else addItem(kind, ownerId, name, qty, note);
       };
     }
   );
@@ -595,7 +646,7 @@ function failed(e){
 function addPlace(name){
   if (!guard()) return;
   S.busy = true;
-  store.add('places', {name:name, createdAt:Date.now()}).then(function(){
+  store.add('places', {name:name, items:[], createdAt:Date.now()}).then(function(){
     S.busy = false; closeSheet(); toast('Added ' + name + '.');
   }, failed);
 }
@@ -625,7 +676,7 @@ function addBin(payload, newPlaceName){
   if (!guard()) return;
   S.busy = true;
   var start = newPlaceName
-    ? store.add('places', {name:newPlaceName, createdAt:Date.now()})
+    ? store.add('places', {name:newPlaceName, items:[], createdAt:Date.now()})
     : Promise.resolve(payload.placeId);
   start.then(function(pid){
     var p = placeById(pid);
@@ -665,34 +716,35 @@ function deleteBin(id){
   }, failed);
 }
 
-function writeItems(binId, items, done){
+/* kind is 'bin' or 'place' - a place holds the things kept loose in it */
+function writeItems(kind, ownerId, items, done){
   if (!guard()) return;
   S.busy = true;
-  store.update('containers', binId, {items:items, updatedAt:Date.now()}).then(function(){
+  store.update(ownerCollection(kind), ownerId, {items:items, updatedAt:Date.now()}).then(function(){
     S.busy = false;
     if (done) done();
   }, failed);
 }
-function addItem(binId, name, qty, note){
-  var b = binById(binId);
-  if (!b) return;
-  var items = (b.items || []).slice();
+function addItem(kind, ownerId, name, qty, note){
+  var owner = ownerOf(kind, ownerId);
+  if (!owner) return;
+  var items = (owner.items || []).slice();
   items.push({id:uid(), name:name, qty:qty || 1, note:note || ''});
-  writeItems(binId, items, function(){ closeSheet(); });
+  writeItems(kind, ownerId, items, function(){ closeSheet(); });
 }
-function updateItem(binId, itemId, patch){
-  var b = binById(binId);
-  if (!b) return;
-  var items = (b.items || []).map(function(it){
+function updateItem(kind, ownerId, itemId, patch){
+  var owner = ownerOf(kind, ownerId);
+  if (!owner) return;
+  var items = (owner.items || []).map(function(it){
     return it.id === itemId ? Object.assign({}, it, patch) : it;
   });
-  writeItems(binId, items, function(){ closeSheet(); });
+  writeItems(kind, ownerId, items, function(){ closeSheet(); });
 }
-function removeItem(binId, itemId){
-  var b = binById(binId);
-  if (!b) return;
-  var items = (b.items || []).filter(function(it){ return it.id !== itemId; });
-  writeItems(binId, items, function(){ closeSheet(); });
+function removeItem(kind, ownerId, itemId){
+  var owner = ownerOf(kind, ownerId);
+  if (!owner) return;
+  var items = (owner.items || []).filter(function(it){ return it.id !== itemId; });
+  writeItems(kind, ownerId, items, function(){ closeSheet(); });
 }
 
 function clearSamples(){
@@ -767,6 +819,12 @@ function exportCsv(){
     if (!items.length) rows.push(base.concat(['', '', '']));
     else items.forEach(function(it){ rows.push(base.concat([it.name, it.qty || 1, it.note || ''])); });
   });
+  /* the loose things: a place, no container */
+  sortedPlaces().forEach(function(p){
+    (p.items || []).forEach(function(it){
+      rows.push([p.name, '(not in a container)', '', '', '', '', it.name, it.qty || 1, it.note || '']);
+    });
+  });
   var csv = rows.map(function(r){ return r.map(csvCell).join(','); }).join('\r\n');
   saveFile('storage-inventory-' + stamp() + '.csv', csv, 'text/csv').then(function(done){
     if (done) { markBackedUp(); toast('Spreadsheet saved.'); }
@@ -808,8 +866,10 @@ function doRestore(data){
 /* ---------------- first-run examples ---------------- */
 var SEED = {
   places: [
-    {key:'garage', name:'Garage', sample:true},
-    {key:'attic',  name:'Attic',  sample:true}
+    {key:'garage', name:'Garage', sample:true, items:[
+      {name:'Extension ladder', qty:1, note:'Hanging on the back wall'}
+    ]},
+    {key:'attic',  name:'Attic',  sample:true, items:[]}
   ],
   containers: [
     {
@@ -848,7 +908,13 @@ function seedExamples(){
   var chain = Promise.resolve();
   SEED.places.forEach(function(p){
     chain = chain.then(function(){
-      return store.add('places', {name:p.name, sample:true, createdAt:now}).then(function(id){ ids[p.key] = id; });
+      return store.add('places', {
+        name: p.name,
+        sample: true,
+        items: (p.items || []).map(function(it){ return {id:uid(), name:it.name, qty:it.qty, note:it.note || ''}; }),
+        createdAt: now,
+        updatedAt: now
+      }).then(function(id){ ids[p.key] = id; });
     });
   });
   SEED.containers.forEach(function(c){
@@ -877,18 +943,22 @@ screen.addEventListener('click', function(e){
   var act = t.getAttribute('data-act');
   var id = t.getAttribute('data-id');
   var itemId = t.getAttribute('data-item');
+  var ownerKind = t.getAttribute('data-owner') === 'place' ? 'place' : 'bin';
 
   if (act === 'home') { home(); }
-  else if (act === 'open-place') { go({name:'place', id:id}); }
+  else if (act === 'open-place') { clearQuery(true); go({name:'place', id:id}); }
   else if (act === 'open-bin') { clearQuery(true); go({name:'bin', id:id}); }
   else if (act === 'open-all') { go({name:'all'}); }
   else if (act === 'new-place') { placeSheet(null); }
   else if (act === 'edit-place') { placeSheet(placeById(id)); }
   else if (act === 'settings') { settingsSheet(); }
   else if (act === 'del-place') {
-    var p = placeById(id), n = binsIn(id).length;
+    var p = placeById(id), n = binsIn(id).length, loose = itemCount(p);
+    var what = [];
+    if (n) what.push('<strong>' + n + '</strong> container' + (n===1?'':'s') + ' and everything listed inside');
+    if (loose) what.push('<strong>' + plural(loose, 'item') + '</strong> kept loose here');
     confirmSheet('Delete ' + (p ? p.name : 'place') + '?',
-      n ? 'Its <strong>' + n + '</strong> container' + (n===1?'':'s') + ' and everything listed inside will go too. This cannot be undone.'
+      what.length ? 'Its ' + what.join(', plus ') + ' will go too. This cannot be undone.'
         : 'Nothing is stored in it. This cannot be undone.',
       'Delete', function(){ deletePlace(id); });
   }
@@ -901,11 +971,11 @@ screen.addEventListener('click', function(e){
       'Delete', function(){ deleteBin(id); });
   }
   else if (act === 'edit-item') {
-    var bb = binById(id);
-    var it = bb && (bb.items || []).filter(function(x){ return x.id === itemId; })[0];
-    if (it) itemSheet(id, it);
+    var owner = ownerOf(ownerKind, id);
+    var it = owner && (owner.items || []).filter(function(x){ return x.id === itemId; })[0];
+    if (it) itemSheet(ownerKind, id, it);
   }
-  else if (act === 'del-item') { removeItem(id, itemId); }
+  else if (act === 'del-item') { removeItem(ownerKind, id, itemId); }
   else if (act === 'clear-q') { clearQuery(); }
   else if (act === 'clear-samples') {
     confirmSheet('Clear the examples?', 'The example places and containers will be deleted. Anything you added yourself stays.', 'Clear examples', clearSamples);
@@ -918,9 +988,9 @@ screen.addEventListener('submit', function(e){
   var input = document.getElementById('quick-name');
   var name = input.value.trim();
   if (!name) return;
-  if (S.view.name !== 'bin') return;
+  if (S.view.name !== 'bin' && S.view.name !== 'place') return;
   input.value = '';
-  addItem(S.view.id, name, 1, '');
+  addItem(S.view.name === 'place' ? 'place' : 'bin', S.view.id, name, 1, '');
 });
 
 function clearQuery(silent){
@@ -951,7 +1021,10 @@ function fatal(msg){
 }
 
 store.subscribe('places', function(rows){
-  S.places = rows;
+  S.places = rows.map(function(p){
+    if (!Array.isArray(p.items)) p.items = [];
+    return p;
+  });
   if (S.ready) render();
 });
 store.subscribe('containers', function(rows){

@@ -4,6 +4,9 @@ A home storage inventory you can keep in your pocket. Record **where** things ar
 stored — garage, attic, unit 214 — and **what's inside** each bin, box or shelf,
 then search for anything by name, note or label code.
 
+Things that aren't in a bin at all — a ladder, a bike, a spare mattress — can be
+listed straight against the place they stand in.
+
 It is a plain static web app: no accounts, no server, no build step. Everything
 you enter is stored on the device in IndexedDB, and the app works offline once it
 has loaded.
@@ -44,6 +47,17 @@ iCloud Drive. On desktop it downloads.
 
 To move your inventory to a new phone: export JSON on the old one, open the app
 on the new one, restore from that file.
+
+## Things that aren't in a container
+
+Open a place and scroll past its containers to **Not in a container**. The
+quick-add line there files an item against the place itself — no bin, box or
+shelf needed. Tap the item afterwards to set a quantity or a note, the same as
+anywhere else.
+
+Loose items are counted in the place's item total, turn up in search with
+*Garage · not in a container* as their location, and appear in the CSV export
+with `(not in a container)` in the Container column.
 
 ## Label codes
 
@@ -109,11 +123,17 @@ reference/            the original claude.ai prototype, kept for comparison
 Two collections.
 
 ```js
-place     = { id, name, createdAt, sample? }
+place     = { id, name,
+              items: [ { id, name, qty, note } ],   // the loose things
+              createdAt, updatedAt, sample? }
 container = { id, name, placeId, kind, spot, notes, code,
               items: [ { id, name, qty, note } ],
               createdAt, updatedAt, sample? }
 ```
+
+An item hangs off whichever owner it belongs to — a container, or a place when it
+is in no container. Both owners use the same `items` shape, so the list, the item
+sheet, search, export and restore treat them alike.
 
 `store.js` is the only file that knows about IndexedDB. It exposes
 `subscribe(collection, cb)`, `add(collection, data)`, `update(collection, id, patch)`
@@ -122,9 +142,10 @@ dropped in later without touching the UI.
 
 ### Example data
 
-On the very first run the app seeds two example places and three containers, all
-flagged `sample: true`, with a banner offering to clear them. Clearing removes
-only the examples. They are never re-seeded.
+On the very first run the app seeds two example places and three containers (plus
+one loose item, the extension ladder in the garage), all flagged `sample: true`,
+with a banner offering to clear them. Clearing removes only the examples. They
+are never re-seeded.
 
 ### Regenerating the icons
 
